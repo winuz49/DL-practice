@@ -3,4 +3,5 @@
 some deep learning practices through tensorflow
 
 ###
-1 mnist example
+use nn to solve digit numbers classification through mnist dataset
+use tensorboard to show the training and the testing result
