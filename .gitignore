@@ -9,3 +9,5 @@ build
 # My configurations:
 *.xml
 *.iml
+*.gz
+MNIST_data
