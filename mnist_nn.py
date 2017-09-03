@@ -23,13 +23,10 @@ def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="SAME")
 
 def deep_nn(x):
-    """deepnn builds the graph for a deep net for classifying digits.
-    :param x: an input tensor with the dimensions (N_examples, 784), where 784 is the
-    number of pixels in a standard MNIST image.
-    :return:  A tuple (y, keep_prob). y is a tensor of shape (N_examples, 10), with values
-    equal to the logits of classifying the digit into one of 10 classes (the
-    digits 0-9). keep_prob is a scalar placeholder for the probability of
-    dropout.
+    """deepnn for mnist digit classification
+    :param x: tensor shape:[None,784]
+    :return:  A tuple (y, keep_prob). y tensor shape :[10] the prediction result .
+     keep_prob the rate of dropout
     """
     with tf.name_scope("reshape"):
         x_image = tf.reshape(x, [-1, 28, 28, 1])
@@ -110,5 +107,5 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="MNIST_data", help="Directory for storing input data")
-    FLAGS, unparser = parser.parse_known_args()
-    tf.app.run(main=main, argv=[sys.argv[0]]+unparser)
+    FLAGS, _ = parser.parse_known_args()
+    tf.app.run(main=main, argv=[sys.argv[0]])

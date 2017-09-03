@@ -3,6 +3,9 @@ import numpy as np
 import sklearn.preprocessing as prep
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
+import argparse
+import sys
+FLAGS = None
 """
 自编码器 无监督学习 在复原自己的过程中学习高维度的特征 其作用类似PCA
 """
@@ -87,8 +90,8 @@ def get_random_block_from_data(data, batch_size):
     return data[start_index:(start_index+batch_size)]
 
 
-if __name__ == "__main__":
-    mnist = input_data.read_data_sets("MNIST_data", one_hot=True)
+def main(_):
+    mnist = input_data.read_data_sets(FLAGS.data_dir, one_hot=True)
     x_train, x_test = standard_scale(mnist.train.images, mnist.test.images)
     n_samples = int(mnist.train.num_examples)
     training_epochs = 20
@@ -99,16 +102,24 @@ if __name__ == "__main__":
                                                     optimizer=tf.train.AdamOptimizer(learning_rate=0.001), scale=0.01)
     for epoch in range(training_epochs):
         avg_cost = 0.
-        total_batch = int(n_samples/batch_size)
+        total_batch = int(n_samples / batch_size)
         for i in range(total_batch):
             batch_data = get_random_block_from_data(x_train, batch_size)
             cost = auto_encoder.partial_fit(batch_data)
-            avg_cost += cost[0]/n_samples*batch_size
+            avg_cost += cost[0] / n_samples * batch_size
 
         if epoch % display_step == 0:
-            print("Epoch:", "%04d" % (epoch+1), "cost=", "{:.9f}".format(avg_cost))
-
-
+            print("Epoch:", "%04d" % (epoch + 1), "cost=", "{:.9f}".format(avg_cost))
     print("total cost: " + str(auto_encoder.calc_total_cost(x_test)))
 
-    print("hidden: " + str(auto_encoder.transform(x_test)) )
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str, default="MNIST_data", help="Directory for storing input data")
+    FLAGS, _ = parser.parse_known_args()
+    tf.app.run(main=main, argv=[sys.argv[0]])
+
+
+    #print("total cost: " + str(auto_encoder.calc_total_cost(x_test)))
+
+    #print("hidden: " + str(auto_encoder.transform(x_test)) )
