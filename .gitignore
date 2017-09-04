@@ -13,3 +13,8 @@ build
 MNIST_data
 test.py
 main.py
+data_batch_*
+test_batch
+*.meta
+*.html
+CIFAR_data
