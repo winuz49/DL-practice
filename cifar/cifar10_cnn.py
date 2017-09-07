@@ -12,6 +12,7 @@ import numpy as np
 FLAGS = None
 
 
+#TODO 自己完成数据的输入即input方法
 def variable_with_weight_loss(shape, stddev, wl):
     var = tf.Variable(tf.truncated_normal(shape, stddev=stddev))
     if wl is not None:
@@ -30,7 +31,7 @@ def conv2d(x, W):
 
 
 def maxPool_3x3_2x2(x):
-    return tf.nn.max_pool(x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1],padding="SAME")
+    return tf.nn.max_pool(x, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="SAME")
 
 
 def get_loss(logits, labels):
@@ -53,11 +54,13 @@ def main(_):
     image_holder = tf.placeholder(tf.float32, [FLAGS.batch_size, 24, 24, 3])
     label_holder = tf.placeholder(tf.int32, [FLAGS.batch_size])
 
-    print 'get imgaes and labels'
+    print 'get images and labels'
     h_w1 = variable_with_weight_loss([5, 5, 3, 64], stddev=5e-2, wl=0.0)
     h_b1 = bias_variable([64], 0.0)
     h_conv1 = tf.nn.relu(tf.nn.bias_add(conv2d(image_holder, h_w1), h_b1))
     h_pool1 = maxPool_3x3_2x2(h_conv1)
+    p_shape1 = h_pool1.get_shape()
+    print "shape1 : ", p_shape1
     h_nor1 = tf.nn.lrn(h_pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75)
 
     h_w2 = variable_with_weight_loss([5, 5, 64, 64], stddev=5e-2, wl=0.0)
@@ -65,9 +68,12 @@ def main(_):
     h_conv2 = tf.nn.relu(tf.nn.bias_add(conv2d(h_nor1, h_w2), h_b2))
     h_nor2 = tf.nn.lrn(h_conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75)
     h_pool2 = maxPool_3x3_2x2(h_nor2)
+    p_shape2 = h_pool2.get_shape()
+    print "shape2 : ", p_shape2
 
     reshape = tf.reshape(h_pool2, [FLAGS.batch_size, -1])
     dim = reshape.get_shape()[1].value
+
     h_w3 = variable_with_weight_loss([dim, 384], stddev=0.04, wl=0.004)
     h_b3 = bias_variable([384], 0.1)
     h_fcn1 = tf.nn.relu(tf.matmul(reshape, h_w3) + h_b3)
@@ -102,8 +108,7 @@ def main(_):
         if step % 10 == 0:
             example_per_sec = duration / FLAGS.batch_size
             sec_per_batch = float(duration)
-
-            format_str =("step %d loss=%.2f (%.1f examples/sec; %.3f sec/batch)")
+            format_str = ("step %d loss=%.2f (%.1f examples/sec; %.3f sec/batch)")
             print(format_str % (step, loss_value, example_per_sec, sec_per_batch))
 
     total_duration = time.time() - begin
@@ -130,9 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", type=str, default=
     "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/cifar-10-batches-bin", help="Directory for storing input data")
     parser.add_argument("--batch_size", type=int, default=256, help="the number of examples each batch to train")
-    parser.add_argument("--max_size", type=int, default=6000, help="the max number of examples need to train")
+    parser.add_argument("--max_size", type=int, default=24000, help="the max number of examples need to train")
     FLAGS = parser.parse_args()
     print FLAGS
     tf.app.run(main=main, argv=[sys.argv[0]])
-
-    print 'hh'

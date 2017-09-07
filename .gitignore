@@ -18,3 +18,12 @@ test_batch
 *.meta
 *.html
 CIFAR_data
+*.zip
+val_data
+test.py
+train_data_batch_*
+cifar10.py
+cifar10_input.py
+show_pic.py
+main.py
+__init__.py
