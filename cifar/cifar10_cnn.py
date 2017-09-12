@@ -3,7 +3,6 @@ import tensorflow as tf
 import argparse
 import sys
 import time
-import math
 import numpy as np
 import pickle
 import os
@@ -12,7 +11,7 @@ max_size = 1000
 data_size = 50000
 model_path = "./CIFAR_data/"
 
-
+#TODO still hava a problem which is Out of range need to solve
 def unpickle(file):
     with open(file, "rb") as content:
         dict = pickle.load(content)
@@ -258,7 +257,7 @@ def input_data(eval_true=False, batch_size=128, num_epochs=1):
     test_file = "./CIFAR_data/tfrecord/test_batch.tfrecords"
     train_folder ="./CIFAR_data/tfrecord/"
     train_files = [train_folder+"data_batch_%d.tfrecords" % i for i in range(1, 6)]
-    print train_files
+    # print train_files
     if not eval_true:
         filename_queue = tf.train.string_input_producer(train_files, num_epochs=num_epochs)
     else:
@@ -326,24 +325,20 @@ def train(_):
 
     logits = inference(image_batch)
     loss = get_loss(logits, label_batch)
-
     train_step = tf.train.AdamOptimizer(1e-3).minimize(loss)
-    # in_top_k : 返回输出结果中top k的准确率  top 1 即是得分最高的准确率
-    top_k_op = tf.nn.in_top_k(predictions=logits, targets=label_batch, k=1)
+
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-    init = tf.global_variables_initializer()
     config = tf.ConfigProto()
     # allocate only as much GPU memory based on runtime allocations
     config.gpu_options.allow_growth = True
     config.gpu_options.per_process_gpu_memory_fraction = 0.9
     sess = tf.Session(config=config)
-    sess.run(init_op)
     saver = tf.train.Saver()
+    sess.run(init_op)
+    coord = tf.train.Coordinator()
 
     begin = time.time()
     try:
-        coord = tf.train.Coordinator()
-        # start_queue_runners 启动完成前面collection任务的线程
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
         step = 1
         while not coord.should_stop():
@@ -361,14 +356,14 @@ def train(_):
     except tf.errors.OutOfRangeError:
         print "Done train -- epoch limit reached"
     finally:
-        save_path = saver.save(sess,model_path+"model.ckpt")
-        coord.request_stop()
+        save_path = saver.save(sess, model_path + "model.ckpt")
         print "model save path:", save_path
+        coord.request_stop()
 
     coord.join(threads)
-    sess.close()
     total_duration = time.time() - begin
     print("total train time %d sec" % total_duration)
+    sess.close()
 
 
 def test(_):
@@ -388,10 +383,9 @@ def test(_):
     config.gpu_options.allow_growth = True
     config.gpu_options.per_process_gpu_memory_fraction = 0.9
     sess = tf.Session(config=config)
+    saver = tf.train.Saver()
     sess.run(init_op)
     coord = tf.train.Coordinator()
-    # start_queue_runners 启动完成前面collection任务的线程
-    saver = tf.train.Saver()
     saver.restore(sess, model_path+"model.ckpt")
 
     begin = time.time()
@@ -404,7 +398,8 @@ def test(_):
     test_top_k_op = tf.nn.in_top_k(predictions=logits, targets=label_batch, k=1)
     step = 1
     try:
-        coord = tf.train.Coordinator()
+
+
         # start_queue_runners 启动完成前面collection任务的线程
         threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
@@ -426,7 +421,7 @@ def test(_):
     finally:
         coord.request_stop()
 
-    print "final step:",step
+    print "final step:", step
     coord.join(threads)
     total_duration = time.time() - begin
     print("total train time %d sec" % total_duration)
@@ -440,10 +435,11 @@ def test(_):
 
 if __name__ == "__main__":
 
+    #input_data()
     print "cifar example"
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=128, help="the number of examples each batch to train")
-    parser.add_argument("--epoch", type=int, default=16, help="the max number of examples need to train")
+    parser.add_argument("--batch_size", type=int, default=32, help="the number of examples each batch to train")
+    parser.add_argument("--epoch", type=int, default=2, help="the max number of examples need to train")
     parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
 
     FLAGS = parser.parse_args()
@@ -453,4 +449,5 @@ if __name__ == "__main__":
     elif FLAGS.action == "test":
         func = test
     tf.app.run(main=func, argv=[sys.argv[0]])
+
 
