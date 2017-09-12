@@ -27,3 +27,4 @@ cifar10_input.py
 show_pic.py
 main.py
 __init__.py
+*.off
