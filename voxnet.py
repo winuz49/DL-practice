@@ -91,6 +91,7 @@ def inference(images):
     lrn2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001/9, beta=0.75, name="lrn2")
     pool2 = tf.nn.max_pool(lrn2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="VALID", name="pool2")
     print_activation(pool2)
+    tf.nn.max_pool3d()
 
     with tf.name_scope("conv3") as scope:
         kernel = variable_with_weight_loss([3, 3, 192, 384], stddev=0.1, wl=0.0)

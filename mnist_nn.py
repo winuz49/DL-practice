@@ -76,6 +76,7 @@ def main(_):
         x = tf.placeholder(tf.float32, [None, 784])
         y_ = tf.placeholder(tf.float32, [None, 10])
 
+
     y_conv, keep_prob = deep_nn(x)
 
     with tf.name_scope("loss"):

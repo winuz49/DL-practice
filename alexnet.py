@@ -3,10 +3,10 @@ import tensorflow as tf
 import sys
 import argparse
 import pickle
-import time
+import numpy as np
 FLAGS = None
 
-
+#TODO 读入imagenet数据 进行训练
 def unpickle(file):
     with open(file, "rb") as content:
         dict = pickle.load(content)
@@ -18,25 +18,25 @@ def read_data_set():
     dict = unpickle(val_dir)
 
     x = dict["data"]
+    x = x[0:128, :]
     y = dict["labels"]
+    y = y[0:128]
+    y = np.array(y)
     image_size = x.shape[0]
 
+
+    print y.shape[0]
+
     print "shape of x", x.shape
+    print "shape of y", len(y)
 
-    valuequeue = tf.train.input_producer(x, shuffle=False)
-    labelqueue = tf.train.input_producer(y, shuffle=False)
+    x_train = tf.convert_to_tensor(x, dtype=tf.float32)
+    y_train = tf.convert_to_tensor(y, dtype=tf.int32)
 
-    images = valuequeue.dequeue()
-    y_train = labelqueue.dequeue()
-
-    print images.get_shape()
-    x_train = tf.cast(images, tf.float32)
-    y_train = tf.cast(y_train, tf.int32)
-
-    x_train = tf.reshape(x_train, ([1, 3, 16, 16]))
+    x_train = tf.reshape(x_train, ([image_size, 3, 16, 16]))
     x_train = tf.transpose(x_train, [0, 2, 3, 1])
-
     print_activation(x_train)
+    print_activation(y_train)
     return x_train, y_train
 
 
@@ -75,7 +75,7 @@ def inference(images):
         _activation_summary(conv1)
         print_activation(conv1)
     lrn1 = tf.nn.lrn(conv1, 4, bias=1.0, alpha=0.001/9, beta=0.75, name="lrn1")
-    pool1 = tf.nn.max_pool(lrn1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="VALID", name="pool1")
+    pool1 = tf.nn.max_pool(lrn1, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="SAME", name="pool1")
     print_activation(pool1)
 
     with tf.name_scope("conv2") as scope:
@@ -85,7 +85,7 @@ def inference(images):
         _activation_summary(conv2)
         print_activation(conv2)
     lrn2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001/9, beta=0.75, name="lrn2")
-    pool2 = tf.nn.max_pool(lrn2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="VALID", name="pool2")
+    pool2 = tf.nn.max_pool(lrn2, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="SAME", name="pool2")
     print_activation(pool2)
 
     with tf.name_scope("conv3") as scope:
@@ -94,7 +94,6 @@ def inference(images):
         conv3 = tf.nn.relu(tf.nn.bias_add(conv_2d(pool2, kernel, stride=1), bias), name=scope)
         _activation_summary(conv3)
         print_activation(conv3)
-
 
     with tf.name_scope("conv4") as scope:
         kernel = variable_with_weight_loss([3, 3, 384, 256], stddev=0.1, wl=0.0)
@@ -110,7 +109,7 @@ def inference(images):
         _activation_summary(conv5)
         print_activation(conv5)
     lrn5 = tf.nn.lrn(conv5, 4, bias=1.0, alpha=0.001/9, beta=0.75, name="lrn5")
-    pool5 = tf.nn.max_pool(lrn5, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="VALID", name="pool5")
+    pool5 = tf.nn.max_pool(lrn5, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding="SAME", name="pool5")
     print_activation(pool5)
 
     with tf.name_scope("fcn1") as scope:
@@ -124,14 +123,14 @@ def inference(images):
         print_activation(fcn1)
 
     with tf.name_scope("fcn2") as scope:
-        kernel = variable_with_weight_loss([4096, 4096], stddev=0.04, wl=0.004)
-        bias = bias_variable([4096], 0.1)
+        kernel = variable_with_weight_loss([4096, 2048], stddev=0.04, wl=0.004)
+        bias = bias_variable([2048], 0.1)
         fcn2 = tf.nn.relu(tf.matmul(fcn1, kernel) + bias, name=scope)
         _activation_summary(fcn2)
         print_activation(fcn2)
 
     with tf.name_scope("fcn3") as scope:
-        kernel = variable_with_weight_loss([4096, 1000], stddev=0.04, wl=0.004)
+        kernel = variable_with_weight_loss([2048, 1000], stddev=0.04, wl=0.004)
         bias = bias_variable([1000], 0.1)
         fcn3 = tf.nn.relu(tf.matmul(fcn2, kernel) + bias, name=scope)
         _activation_summary(fcn3)
@@ -171,23 +170,23 @@ def inputdata(data_dir):
 
 def test(_):
 
-    with tf.Graph().as_default():
+
         #image_size = 224
         #images = tf.Variable(tf.random_normal(
             #[FLAGS.batch_size, image_size, image_size, 3], dtype=tf.float32, stddev=0.1))
 
         #print_activation(images)
         #logits = inference(images)
-        x_train, y_train = read_data_set()
 
-        init = tf.global_variables_initializer()
-        sess = tf.Session()
-        sess.run(init)
+    x_data, y_data = read_data_set()
+    x_train = tf.placeholder(tf.float32, [128, 16, 16, 3])
+    logits = inference(x_train)
+    init = tf.global_variables_initializer()
+    sess = tf.Session()
+    sess.run(init)
+    print sess.run([logits],feed_dict={x_train: x_data})
 
-        result = tf.Print(y_train, [y_train])
-        result = result + 1
-        print sess.run([result])
-        print 'jjj'
+
 
 """
 def train():
