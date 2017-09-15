@@ -251,6 +251,7 @@ def convert_to_records(data, labels, idx):
     tf_file = os.path.join(tf_dir, ('data_batch_%d.tfrecords' % idx))
     print tf_file
     size = data.shape[0]
+    print tf_file
     print 'size: ', size
     writer = tf.python_io.TFRecordWriter(tf_file)
     for i in range(size):
@@ -318,32 +319,9 @@ def test():
     return
 
 
-def create_dataset():
-    file_list_dir = './batch'
-    list_files = os.listdir(file_list_dir)
-    print list_files
-    '''
-    # replace bin by xyz
-    for list_file in list_files:
-        reader = open(os.path.join(file_list_dir, list_file), 'r')
-        lines = reader.readlines()
-        reader.close()
-        writer = open(os.path.join(file_list_dir, list_file), 'w')
-        for line in lines:
-            line = line.replace('bin', 'xyz')
-            print line
-            writer.write(line)
-        print lines
-        writer.close()
-    '''
-    idx = 0
-    for list_file in list_files:
-        reader = open(os.path.join(file_list_dir, list_file), 'r')
-
-
 
 if __name__ == "__main__":
-    test()
+    parse_data_to_cube()
     #data, labels = parse_data_to_cube()
     #convert_to_records(data, labels)
     #convert_to_records(1,2,3)

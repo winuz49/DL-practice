@@ -3,9 +3,10 @@ import tensorflow as tf
 import sys
 import argparse
 import create_cubic as cc
+import numpy as np
 FLAGS = None
 import time
-
+model_path = "./batch/"
 
 def _activation_summary(x):
     """Helper to create summaries for activations."""
@@ -95,8 +96,11 @@ def inference(boxes):
     return softmax_linear
 
 
-def input_data():
-    file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(4)]
+def input_data(eval_true=False):
+    if not eval_true:
+        file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(4)]
+    else:
+        file_list = ['./tfrecord/data_batch_0.tfrecords']
 
     filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
 
@@ -165,15 +169,87 @@ def train(_):
     except tf.errors.OutOfRangeError:
         print "Done train -- epoch limit reached"
     finally:
-        #save_path = saver.save(sess, model_path + "model.ckpt")
-        #print "model save path:", save_path
+        save_path = saver.save(sess, model_path + "model.ckpt")
+        print "model save path:", save_path
         coord.request_stop()
 
     coord.join(threads)
     total_duration = time.time() - begin
     print("total train time %d sec" % total_duration)
-
     sess.close()
+
+
+def test(_):
+
+    cube_batch, label_batch = input_data(eval_true=True)
+
+    with tf.name_scope("reshape") as scope:
+        cube_batch = tf.cast(cube_batch, tf.float32)
+        label_batch = tf.cast(label_batch, tf.int32)
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
+        label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
+        print 'cube', cube_batch
+        print 'label', label_batch
+
+    logits = inference(cube_batch)
+
+    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+    config = tf.ConfigProto()
+    # allocate only as much GPU memory based on runtime allocations
+    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.9
+    sess = tf.Session(config=config)
+    saver = tf.train.Saver()
+    sess.run(init_op)
+    coord = tf.train.Coordinator()
+    saver.restore(sess, model_path+"model.ckpt")
+
+    begin = time.time()
+
+    num_examples = 132
+    total_count = num_examples*FLAGS.epoch
+    true_count = 0
+    test_loss = get_loss(logits, label_batch)
+    # in_top_k : 返回输出结果中top k的准确率  top 1 即是得分最高的准确率
+    test_top_k_op = tf.nn.in_top_k(predictions=logits, targets=label_batch, k=1)
+    step = 1
+    try:
+
+
+        # start_queue_runners 启动完成前面collection任务的线程
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        while not coord.should_stop():
+            start_time = time.time()
+
+            prediction, loss_value = sess.run([test_top_k_op, test_loss])
+            true_count += np.sum(prediction)
+
+            duration = time.time() - start_time
+            if step % 10 == 0:
+                example_per_sec = duration / FLAGS.batch_size
+                sec_per_batch = float(duration)
+                format_str = ("step %d loss=%.2f (%.1f examples/sec; %.3f sec/batch)")
+                print(format_str % (step, loss_value, example_per_sec, sec_per_batch))
+            step = step + 1
+    except tf.errors.OutOfRangeError:
+        print "Done test -- epoch limit reached"
+    finally:
+        coord.request_stop()
+
+    print "final step:", step
+    coord.join(threads)
+    total_duration = time.time() - begin
+    print("total train time %d sec" % total_duration)
+    precision = float(true_count)/float(total_count)
+    total_duration = time.time() - begin
+    print("total test time %d sec" % total_duration)
+    print ("total count: %d true count: %d" % (total_count, true_count))
+    print("precision %.3f " % precision)
+    sess.close()
+
+
+
 
 
 
@@ -212,7 +288,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./imagenet_data/train", help="Directory for input data")
     parser.add_argument("--batch_size", type=int, default=8, help="the number of examples each batch to train")
-    parser.add_argument("--epoch", type=int, default=200, help="the max number of examples need to train")
+    parser.add_argument("--epoch", type=int, default=20, help="the max number of examples need to train")
     parser.add_argument("--num_classes", type=int, default=26, help="the  classes of the examples ")
     FLAGS = parser.parse_args()
     tf.app.run(main=train, argv=[sys.argv[0]])
