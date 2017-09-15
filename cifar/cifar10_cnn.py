@@ -42,8 +42,8 @@ def _byte_feature(value):
 
 
 def convert_to_records():
-    filename = "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/cifar-10-batches-py/data_batch_"
-    tf_records = "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/tfrecord/data_batch_"
+    filename = "/home/wzj/PycharmProjects/DL-practice/cifar/CIFAR_data/cifar-10-batches-py/data_batch_"
+    tf_records = "/home/wzj/PycharmProjects/DL-practice/cifar/CIFAR_data/tfrecord/data_batch_"
 
     '''
     print "compare to read"
@@ -57,30 +57,42 @@ def convert_to_records():
         dict = unpickle(filename+str(i))
         x_data = dict["data"]
         y_data = np.array(dict["labels"])
+
+        print 'size: '
+        print 'x:', x_data.shape
+        print 'y: ', y_data.shape
+
+        print 'type: '
+        print type(x_data)
+        print type(y_data)
+
+        print x_data.shape
+        print type(x_data[0][0])
+        print type(y_data[0])
         size = x_data.shape[0]
-        writer = tf.python_io.TFRecordWriter(tf_records+str(i)+".tfrecords")
+        #writer = tf.python_io.TFRecordWriter(tf_records+str(i)+".tfrecords")
         for i in range(size):
             data_raw = x_data[i].tostring()
             example = tf.train.Example(features=tf.train.Features(
                 feature={"data": _byte_feature(data_raw), "label": _int64_feature(int(y_data[i]))}))
-            writer.write(example.SerializeToString())
-        writer.close()
+            #writer.write(example.SerializeToString())
+        #writer.close()
 
     print "test:"
-    test_file = "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/cifar-10-batches-py/test_batch"
-    test_records = "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/tfrecord/test_batch"
+    test_file = "/home/wzj/PycharmProjects/DL-practice/cifar/CIFAR_data/cifar-10-batches-py/test_batch"
+    test_records = "/home/wzj/PycharmProjects/DL-practice/cifar/CIFAR_data/tfrecord/test_batch"
 
     dict = unpickle(test_file)
     x_data = dict["data"]
     y_data = np.array(dict["labels"])
     size = x_data.shape[0]
-    writer = tf.python_io.TFRecordWriter(test_records + ".tfrecords")
+    #writer = tf.python_io.TFRecordWriter(test_records + ".tfrecords")
     for i in range(size):
         data_raw = x_data[i].tostring()
         example = tf.train.Example(features=tf.train.Features(
             feature={"data": _byte_feature(data_raw), "label": _int64_feature(int(y_data[i]))}))
-        writer.write(example.SerializeToString())
-    writer.close()
+        #writer.write(example.SerializeToString())
+    #writer.close()
 
     return
 
@@ -198,17 +210,16 @@ def read_from_record_from_dataset():
 
 
 def test_tf_record():
-    filename = "/home/wzj/PycharmProjects/DL-practice/CIFAR_data/cifar-10-batches-py/test_batch"
+    filename = "/home/wzj/PycharmProjects/DL-practice/cifar/CIFAR_data/cifar-10-batches-py/test_batch"
     dict = unpickle(filename)
     x_data = tf.cast(dict["data"][0:100, :], tf.float32)
     y_data = tf.cast(np.array(dict["labels"][0:100]), tf.int32)
-    print x_data.shape
-    print y_data.shape
     #     images, labels = tf.train.shuffle_batch 根据源数据集和batch大小获得batch数据集
     images, labels = tf.train.shuffle_batch(
-        [x_data[0,:], y_data[0]], batch_size=2, enqueue_many=False, capacity=5000, min_after_dequeue=1000)
+        [x_data[0,:], y_data[0]], batch_size=10, enqueue_many=False, capacity=5000, min_after_dequeue=1000)
 
     op = images+1
+    op2 = labels+1
 
     sess = tf.InteractiveSession()
     print 'hhh'
@@ -216,8 +227,11 @@ def test_tf_record():
     tf.train.start_queue_runners()
     print 'hhh'
     print sess.run(op)
+    print sess.run(op2)
+
     print images.shape
     print labels.shape
+    print labels
     print 'hhh'
 
 
@@ -272,6 +286,7 @@ def input_data(eval_true=False, batch_size=128, num_epochs=1):
     })
     label = features["label"]
     data = features["data"]
+    print 'label shape: ', label.shape
     image_batch, label_batch = tf.train.shuffle_batch(
         [data, label], batch_size=batch_size, capacity=2000, min_after_dequeue=1000)
     return image_batch, label_batch
@@ -322,6 +337,7 @@ def train(_):
         label_batch = tf.cast(label_batch, tf.int32)
         image_batch = tf.transpose(tf.reshape(image_batch, [FLAGS.batch_size, 3, 32, 32]), [0, 2, 3, 1])
         label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
+        print "label size:", label_batch
 
     logits = inference(image_batch)
     loss = get_loss(logits, label_batch)
@@ -435,10 +451,11 @@ def test(_):
 
 if __name__ == "__main__":
 
-    #input_data()
+    test_tf_record()
+    '''
     print "cifar example"
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32, help="the number of examples each batch to train")
+    parser.add_argument("--batch_size", type=int, default=4, help="the number of examples each batch to train")
     parser.add_argument("--epoch", type=int, default=2, help="the max number of examples need to train")
     parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
 
@@ -449,5 +466,6 @@ if __name__ == "__main__":
     elif FLAGS.action == "test":
         func = test
     tf.app.run(main=func, argv=[sys.argv[0]])
+    '''
 
 

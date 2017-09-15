@@ -28,3 +28,6 @@ show_pic.py
 main.py
 __init__.py
 *.off
+*.bin
+*.xyz
+*.txt

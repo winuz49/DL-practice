@@ -2,7 +2,9 @@
 import tensorflow as tf
 import sys
 import argparse
+import create_cubic as cc
 FLAGS = None
+import time
 
 
 def _activation_summary(x):
@@ -70,21 +72,21 @@ def inference(boxes):
         reshape = tf.reshape(pool3, [FLAGS.batch_size, -1])
         dim = reshape.get_shape()[1].value
         print ("dim: ", dim)
-        kernel = variable_with_weight_loss([dim, 128], stddev=0.04, wl=0.004)
-        bias = bias_variable([128], 0.1)
+        kernel = variable_with_weight_loss([dim, 384], stddev=0.04, wl=0.004)
+        bias = bias_variable([384], 0.1)
         fcn1 = tf.nn.relu(tf.matmul(reshape, kernel) + bias, name=scope)
         _activation_summary(fcn1)
         print_activation(fcn1)
 
     with tf.name_scope("fcn2") as scope:
-        kernel = variable_with_weight_loss([128, 10], stddev=0.04, wl=0.004)
-        bias = bias_variable([10], 0.1)
+        kernel = variable_with_weight_loss([384, 192], stddev=0.04, wl=0.004)
+        bias = bias_variable([192], 0.1)
         fcn2 = tf.nn.relu(tf.matmul(fcn1, kernel) + bias, name=scope)
         _activation_summary(fcn2)
         print_activation(fcn2)
 
     with tf.name_scope("softmax_linear") as scope:
-        kernel = variable_with_weight_loss([10, FLAGS.num_classes], stddev=0.0001, wl=0.0)
+        kernel = variable_with_weight_loss([192, FLAGS.num_classes], stddev=0.0001, wl=0.0)
         bias = bias_variable([FLAGS.num_classes], 0.0)
         softmax_linear = tf.nn.relu(tf.matmul(fcn2, kernel) + bias, name=scope)
         _activation_summary(softmax_linear)
@@ -93,19 +95,96 @@ def inference(boxes):
     return softmax_linear
 
 
+def input_data():
+    file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(4)]
+
+    filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
+
+    #print filename_queue
+
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+
+    #print serialized_example
+
+    features = tf.parse_single_example(serialized_example, features={
+        "data": tf.FixedLenFeature([98304], tf.float32),
+        "label": tf.FixedLenFeature([], tf.int64)
+    })
+    data = features["data"]
+    label = features["label"]
+    print data, label
+
+    image_batch, label_batch = tf.train.shuffle_batch(
+        [data, label], batch_size=FLAGS.batch_size, capacity=2000, min_after_dequeue=1000)
+    return image_batch, label_batch
+
+
+def train(_):
+    cube_batch, label_batch = input_data()
+
+    with tf.name_scope("reshape") as scope:
+        cube_batch = tf.cast(cube_batch, tf.float32)
+        label_batch = tf.cast(label_batch, tf.int32)
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
+        label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
+        print 'cube', cube_batch
+        print 'label', label_batch
+
+
+    logits = inference(cube_batch)
+    loss = get_loss(logits, label_batch)
+    train_step = tf.train.AdamOptimizer(1e-3).minimize(loss)
+
+    config = tf.ConfigProto()
+    # allocate only as much GPU memory based on runtime allocations
+    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.9
+    sess = tf.Session(config=config)
+    saver = tf.train.Saver()
+    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+    sess.run(init_op)
+    coord = tf.train.Coordinator()
+
+    begin = time.time()
+    try:
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        step = 1
+        while not coord.should_stop():
+            start_time = time.time()
+
+            _, loss_value = sess.run([train_step, loss])
+
+            duration = time.time() - start_time
+            if step % 10 == 0:
+                example_per_sec = duration / FLAGS.batch_size
+                sec_per_batch = float(duration)
+                format_str = ("step %d loss=%.2f (%.1f examples/sec; %.3f sec/batch)")
+                print(format_str % (step, loss_value, example_per_sec, sec_per_batch))
+            step = step + 1
+    except tf.errors.OutOfRangeError:
+        print "Done train -- epoch limit reached"
+    finally:
+        #save_path = saver.save(sess, model_path + "model.ckpt")
+        #print "model save path:", save_path
+        coord.request_stop()
+
+    coord.join(threads)
+    total_duration = time.time() - begin
+    print("total train time %d sec" % total_duration)
+
+    sess.close()
+
+
+
 def get_loss(logits, labels):
-    """Add L2Loss to all the trainable variables.
-    Add summary for "Loss" and "Loss/avg".
-    Args:
-      logits: Logits from inference().
-      labels: Labels from dataset
-    Returns:
-      Loss tensor of type float.
-    """
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
-        labels=labels, logits=logits, name="cross_entropy_per_example")
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
+        logits=logits, labels=labels, name="cross_entropy_per_example")
     cross_entropy_mean = tf.reduce_mean(cross_entropy, name="cross_entropy")
-    tf.add_to_collection(name="losses", value=cross_entropy_mean)
+
+    tf.add_to_collection("losses", cross_entropy_mean)
+    # get_collection : 获得一个有同样名字变量的list
+    # add_n 将list中相同shape的变量相加并返回结果
     return tf.add_n(tf.get_collection("losses"), name="total_loss")
 
 
@@ -128,11 +207,16 @@ def test(_):
 
 if __name__ == "__main__":
 
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default="./imagenet_data/train", help="Directory for input data")
-    parser.add_argument("--batch_size", type=int, default=32, help="the number of examples each batch to train")
-    parser.add_argument("--max_size", type=int, default=3000, help="the max number of examples need to train")
-    parser.add_argument("--num_classes", type=int, default=10, help="the  classes of the examples ")
+    parser.add_argument("--batch_size", type=int, default=8, help="the number of examples each batch to train")
+    parser.add_argument("--epoch", type=int, default=200, help="the max number of examples need to train")
+    parser.add_argument("--num_classes", type=int, default=26, help="the  classes of the examples ")
     FLAGS = parser.parse_args()
-    tf.app.run(main=test, argv=[sys.argv[0]])
+    tf.app.run(main=train, argv=[sys.argv[0]])
+
+
+
 
