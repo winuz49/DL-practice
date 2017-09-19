@@ -31,3 +31,7 @@ __init__.py
 *.bin
 *.xyz
 *.txt
+model.*
+checkpoint
+VoxNet-for-01-padding/*
+*.tfrecords

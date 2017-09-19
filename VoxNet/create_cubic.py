@@ -20,10 +20,11 @@ wd bench bicycle biker building bus car cyclist excavator pedestrian pillar pole
 ticket_machine traffic_lights traffic_sign trailer trash tree truck trunk umbrella ute van vegetation
 '''
 
-label_dictionary = {'4wd': 0, 'bench': 1, 'bicycle': 2, 'biker': 3, 'building': 4,'bus': 5, 'car': 6,
-                    'cyclist':7, 'excavator':8, 'pedestrian':9, 'pillar':10, 'pole':11, 'post':12,
-                    'scooter':13, 'ticket_machine':14, 'traffic_lights':15, 'traffic_sign':16, 'trailer':17,
-                    'trash':18, 'tree':19, 'truck':20, 'trunk':21, 'umbrella':22, 'ute':23, 'van':24, 'vegetation':25}
+label_dictionary = {'4wd': 0, 'building': 1, 'bus': 2, 'car': 3, 'pedestrian': 4, 'pillar': 5, 'pole': 6,
+                    'traffic_lights': 7, 'traffic_sign': 8, 'tree': 9, 'truck': 10, 'trunk': 11, 'ute': 12,
+                    'van': 13}
+modelNet_label_dictionary = {'bed': 0, 'monitor': 1, 'dresser': 2, 'sofa': 3,
+                                 'toilet': 4, 'bathtub': 5, 'chair': 6, 'night_stand': 7, 'desk': 8, 'table': 9}
 binType = np.dtype(dict(names=names, formats=formats))
 #TODO 增加数据
 
@@ -148,6 +149,8 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
 
     corrd_to_cube = scale_points(points, scatter_list)
 
+    #cube = np.zeros((x_size, y_size, z_size, feature_dim))
+    # 只放置 0 或 1 不放置 法向量
     cube = np.zeros((x_size, y_size, z_size, feature_dim))
 
     #print 'cube shape: ', cube.shape
@@ -166,6 +169,8 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
 
         if (condit1 and condit2 and condit3):
             cube[int(element[0]), int(element[1]), int(element[2])] = element[3:3 + feature_dim]
+            # 不放置法向量 放置 0 或 1
+            # cube[int(element[0]), int(element[1]), int(element[2])] = 1
             # print "cube element"
             # print cube[corrd_to_cube[0], corrd_to_cube[1], corrd_to_cube[2]]
         else:
@@ -228,6 +233,7 @@ def parse_data_to_cube():
             cube = creat_cube_of_object(features)
             key = xyz_file.split('.')[0]
             cube = np.reshape(cube, [98304])
+            #cube = np.reshape(cube, [32768])
             list_of_data.append(cube)
             labels.append(label_dictionary[key])
 
@@ -265,7 +271,113 @@ def convert_to_records(data, labels, idx):
 def input_data():
 
     #tf_file = './tfrecord/temp.tfrecords'
-    file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(4)]
+    kinds = modelNet_label_dictionary.keys()
+    file_list = ['./tfrecord/train/%s_batch.tfrecords' % kind for kind in kinds]
+
+    filename_queue = tf.train.string_input_producer(file_list, 2)
+
+    print filename_queue
+
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+
+    print serialized_example
+
+    features = tf.parse_single_example(serialized_example, features={
+        "data": tf.FixedLenFeature([98304], tf.float32),
+        "label": tf.FixedLenFeature([], tf.int64)
+    })
+    data = features["data"]
+    label = features["label"]
+    print data, label
+
+    image_batch, label_batch = tf.train.shuffle_batch(
+        [data, label], batch_size=4, capacity=2000, min_after_dequeue=1000)
+    return image_batch, label_batch
+
+
+def convert_modelNet_to_records(data, labels, file):
+
+    tf_dir = './tfrecord/'
+    # 创建test数据集合
+    #tf_file = os.path.join(tf_dir, ('test_%s_batch.tfrecords' % file))
+    tf_file = os.path.join(tf_dir, ('%s_batch.tfrecords' % file))
+
+    size = data.shape[0]
+
+    print ' file: %s size: %d ' % (tf_file, size)
+    writer = tf.python_io.TFRecordWriter(tf_file)
+    for i in range(size):
+        data_raw = list(data[i])
+        example = tf.train.Example(features=tf.train.Features(
+            feature={"data": _float_feature(data_raw), "label": _int64_feature(int(labels[i]))}))
+        writer.write(example.SerializeToString())
+    writer.close()
+    return
+
+
+#TODO 有NAN异常 待解决
+# create tf data used for tensorflow from modelNet
+def parse_model_net_to_record():
+
+    modelNet_dataset_dir = '/home/wzj/Documents/files/dataset/ModelNet10/'
+    action_type = '/test/'
+    tf_records_dir = './tfrecord/'
+    files_list = os.listdir(modelNet_dataset_dir)
+    print files_list
+    for file in files_list:
+        is_dir = os.path.isdir(os.path.join(modelNet_dataset_dir, file))
+        if is_dir:
+            print file
+            print modelNet_label_dictionary[file]
+            data_files = os.listdir(os.path.join(modelNet_dataset_dir, file+action_type))
+            list_cube = []
+            labels = []
+            print '%s size is %d' % (file, len(data_files))
+            step = 1
+            for data_file in data_files:
+
+                reader = open(os.path.join(modelNet_dataset_dir+file+action_type, data_file), 'r')
+                # 除去OFF文件头
+                line = reader.readline()
+                line = reader.readline()
+                count = int(line.split(' ')[0])
+                print "%d step file %s count %d" % (step, data_file, count)
+                step = step + 1
+                element_list = []
+                for i in range(count):
+                    # print 'step %d: ' % (i+1)
+                    split_line = reader.readline().replace('\n', '').split(' ')
+                    temp_list = []
+                    for num in split_line:
+                        temp_list.append(float(num))
+                    # print temp_list
+                    element_list.append(temp_list)
+
+                points = np.array(element_list)
+                features = get_features(points)
+                cube = creat_cube_of_object(features)
+                cube = np.reshape(cube, [98304])
+
+                list_cube.append(cube)
+                labels.append(modelNet_label_dictionary[file])
+                reader.close()
+
+            array_cube = np.array(list_cube)
+            array_label = np.array(labels)
+            print array_cube.shape
+            print array_label.shape
+            convert_modelNet_to_records(array_cube, array_label, file)
+
+    return
+
+
+def input_data_from_modelNet():
+
+    kinds = modelNet_label_dictionary.keys()
+    file_list = ['./tfrecord/modelNet/train/%s_batch.tfrecords' % kind for kind in kinds]
+    #file_list = ['./tf']
+    print file_list
 
     filename_queue = tf.train.string_input_producer(file_list, 2)
 
@@ -290,7 +402,7 @@ def input_data():
 
 
 def test():
-    data, label = input_data()
+    data, label = input_data_from_modelNet()
     config = tf.ConfigProto()
     # allocate only as much GPU memory based on runtime allocations
     config.gpu_options.allow_growth = True
@@ -321,7 +433,9 @@ def test():
 
 
 if __name__ == "__main__":
-    parse_data_to_cube()
+    #parse_model_net_to_record()
+    test()
+    #test()
     #data, labels = parse_data_to_cube()
     #convert_to_records(data, labels)
     #convert_to_records(1,2,3)

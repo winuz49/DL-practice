@@ -2,12 +2,12 @@
 import tensorflow as tf
 import sys
 import argparse
-import create_cubic as cc
 import numpy as np
 FLAGS = None
 import time
-model_path = "./batch/"
-
+model_path = "./checkpoints/"
+modelNet_label_dictionary = {'bed': 0, 'monitor': 1, 'dresser': 2, 'sofa': 3,
+                                 'toilet': 4, 'bathtub': 5, 'chair': 6, 'night_stand': 7, 'desk': 8, 'table': 9}
 def _activation_summary(x):
     """Helper to create summaries for activations."""
     tensor_name = x.op.name
@@ -73,21 +73,21 @@ def inference(boxes):
         reshape = tf.reshape(pool3, [FLAGS.batch_size, -1])
         dim = reshape.get_shape()[1].value
         print ("dim: ", dim)
-        kernel = variable_with_weight_loss([dim, 384], stddev=0.04, wl=0.004)
-        bias = bias_variable([384], 0.1)
+        kernel = variable_with_weight_loss([dim, 1024], stddev=0.04, wl=0.004)
+        bias = bias_variable([1024], 0.1)
         fcn1 = tf.nn.relu(tf.matmul(reshape, kernel) + bias, name=scope)
         _activation_summary(fcn1)
         print_activation(fcn1)
 
     with tf.name_scope("fcn2") as scope:
-        kernel = variable_with_weight_loss([384, 192], stddev=0.04, wl=0.004)
-        bias = bias_variable([192], 0.1)
+        kernel = variable_with_weight_loss([1024, 512], stddev=0.04, wl=0.004)
+        bias = bias_variable([512], 0.1)
         fcn2 = tf.nn.relu(tf.matmul(fcn1, kernel) + bias, name=scope)
         _activation_summary(fcn2)
         print_activation(fcn2)
 
     with tf.name_scope("softmax_linear") as scope:
-        kernel = variable_with_weight_loss([192, FLAGS.num_classes], stddev=0.0001, wl=0.0)
+        kernel = variable_with_weight_loss([512, FLAGS.num_classes], stddev=0.0001, wl=0.0)
         bias = bias_variable([FLAGS.num_classes], 0.0)
         softmax_linear = tf.nn.relu(tf.matmul(fcn2, kernel) + bias, name=scope)
         _activation_summary(softmax_linear)
@@ -98,11 +98,13 @@ def inference(boxes):
 
 def input_data(eval_true=False):
     if not eval_true:
-        file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(4)]
+        #file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(3)]
+        file_list = ['./tfrecord/data_batch_1.tfrecords', './tfrecord/data_batch_2.tfrecords',
+                     './tfrecord/data_batch_3.tfrecords']
+        filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
     else:
         file_list = ['./tfrecord/data_batch_0.tfrecords']
-
-    filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
+        filename_queue = tf.train.string_input_producer(file_list, 1)
 
     #print filename_queue
 
@@ -110,6 +112,37 @@ def input_data(eval_true=False):
     _, serialized_example = reader.read(filename_queue)
 
     #print serialized_example
+    # normal setting "data": tf.FixedLenFeature([98304], tf.float32)
+
+    features = tf.parse_single_example(serialized_example, features={
+        "data": tf.FixedLenFeature([98304], tf.float32),
+        "label": tf.FixedLenFeature([], tf.int64)
+    })
+    data = features["data"]
+    label = features["label"]
+    print data, label
+
+    image_batch, label_batch = tf.train.shuffle_batch(
+        [data, label], batch_size=FLAGS.batch_size, capacity=2000, min_after_dequeue=1000)
+    return image_batch, label_batch
+
+
+def input_data_from_modelNet(eval_true=False):
+
+    kinds = modelNet_label_dictionary.keys()
+    if not eval_true:
+        file_list = ['./tfrecord/modelNet/train/%s_batch.tfrecords' % kind for kind in kinds]
+        filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
+    else:
+        file_list = ['./tfrecord/modelNet/test/test_%s_batch.tfrecords' % kind for kind in kinds]
+        filename_queue = tf.train.string_input_producer(file_list, 1)
+
+    print filename_queue
+
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+
+    print serialized_example
 
     features = tf.parse_single_example(serialized_example, features={
         "data": tf.FixedLenFeature([98304], tf.float32),
@@ -206,8 +239,7 @@ def test(_):
 
     begin = time.time()
 
-    num_examples = 132
-    total_count = num_examples*FLAGS.epoch
+    total_count = int(FLAGS.test_total)
     true_count = 0
     test_loss = get_loss(logits, label_batch)
     # in_top_k : 返回输出结果中top k的准确率  top 1 即是得分最高的准确率
@@ -239,18 +271,12 @@ def test(_):
 
     print "final step:", step
     coord.join(threads)
-    total_duration = time.time() - begin
-    print("total train time %d sec" % total_duration)
     precision = float(true_count)/float(total_count)
     total_duration = time.time() - begin
     print("total test time %d sec" % total_duration)
     print ("total count: %d true count: %d" % (total_count, true_count))
     print("precision %.3f " % precision)
     sess.close()
-
-
-
-
 
 
 def get_loss(logits, labels):
@@ -264,34 +290,21 @@ def get_loss(logits, labels):
     return tf.add_n(tf.get_collection("losses"), name="total_loss")
 
 
-def test(_):
-    print 'test'
-    with tf.Graph().as_default():
-        image_size = 32
-        images = tf.Variable(tf.random_normal(
-            [FLAGS.batch_size, image_size, image_size, image_size, 3], dtype=tf.float32, stddev=0.1))
-
-        print_activation(images)
-        logits = inference(images)
-
-        init = tf.global_variables_initializer()
-        sess = tf.Session()
-        sess.run(init)
-
-
-    return
-
 if __name__ == "__main__":
 
-
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default="./imagenet_data/train", help="Directory for input data")
     parser.add_argument("--batch_size", type=int, default=8, help="the number of examples each batch to train")
     parser.add_argument("--epoch", type=int, default=20, help="the max number of examples need to train")
-    parser.add_argument("--num_classes", type=int, default=26, help="the  classes of the examples ")
+    parser.add_argument("--num_classes", type=int, default=10, help="the  classes of the examples ")
+    parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
+    parser.add_argument("--test_total", type=str, default=1000, help="the total count of test examples ")
     FLAGS = parser.parse_args()
-    tf.app.run(main=train, argv=[sys.argv[0]])
+    print FLAGS
+    if FLAGS.action == "train":
+        func = train
+    elif FLAGS.action == "test":
+        func = test
+    tf.app.run(main=func, argv=[sys.argv[0]])
 
 
 
