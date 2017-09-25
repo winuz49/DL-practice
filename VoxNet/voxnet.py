@@ -39,7 +39,7 @@ def conv_2d(x, W, stride, padding="SAME"):
 def inference(boxes):
 
     with tf.name_scope("conv1") as scope:
-        kernel = variable_with_weight_loss([5, 5, 5, 3, 64], stddev=0.1, wl=0.0)
+        kernel = variable_with_weight_loss([5, 5, 5, 6, 64], stddev=0.1, wl=0.0)
         bias = bias_variable([64], 0.0)
         conv1 = tf.nn.conv3d(boxes, kernel, strides=[1, 1, 1, 1, 1], padding="SAME")
         conv1 = tf.nn.relu(tf.nn.bias_add(conv1, bias), name=scope)
@@ -134,7 +134,7 @@ def input_data_from_modelNet(eval_true=False):
         file_list = ['./tfrecord/modelNet/train/%s_batch.tfrecords' % kind for kind in kinds]
         filename_queue = tf.train.string_input_producer(file_list, FLAGS.epoch)
     else:
-        file_list = ['./tfrecord/modelNet/test/test_%s_batch.tfrecords' % kind for kind in kinds]
+        file_list = ['./tfrecord/modelNet/test/%s_batch.tfrecords' % kind for kind in kinds]
         filename_queue = tf.train.string_input_producer(file_list, 1)
 
     print filename_queue
@@ -145,7 +145,7 @@ def input_data_from_modelNet(eval_true=False):
     print serialized_example
 
     features = tf.parse_single_example(serialized_example, features={
-        "data": tf.FixedLenFeature([98304], tf.float32),
+        "data": tf.FixedLenFeature([196608], tf.float32),
         "label": tf.FixedLenFeature([], tf.int64)
     })
     data = features["data"]
@@ -158,12 +158,12 @@ def input_data_from_modelNet(eval_true=False):
 
 
 def train(_):
-    cube_batch, label_batch = input_data()
+    cube_batch, label_batch = input_data_from_modelNet()
 
     with tf.name_scope("reshape") as scope:
         cube_batch = tf.cast(cube_batch, tf.float32)
         label_batch = tf.cast(label_batch, tf.int32)
-        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 6])
         label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
         print 'cube', cube_batch
         print 'label', label_batch
@@ -214,12 +214,12 @@ def train(_):
 
 def test(_):
 
-    cube_batch, label_batch = input_data(eval_true=True)
+    cube_batch, label_batch = input_data_from_modelNet(eval_true=True)
 
     with tf.name_scope("reshape") as scope:
         cube_batch = tf.cast(cube_batch, tf.float32)
         label_batch = tf.cast(label_batch, tf.int32)
-        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 6])
         label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
         print 'cube', cube_batch
         print 'label', label_batch
@@ -297,7 +297,7 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", type=int, default=20, help="the max number of examples need to train")
     parser.add_argument("--num_classes", type=int, default=10, help="the  classes of the examples ")
     parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
-    parser.add_argument("--test_total", type=str, default=1000, help="the total count of test examples ")
+    parser.add_argument("--test_total", type=str, default=908, help="the total count of test examples ")
     FLAGS = parser.parse_args()
     print FLAGS
     if FLAGS.action == "train":

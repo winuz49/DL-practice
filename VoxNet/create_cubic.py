@@ -4,6 +4,7 @@ import os
 from sklearn.neighbors import NearestNeighbors
 from sklearn.decomposition import PCA
 import tensorflow as tf
+import math
 
 source_dir = "/home/wzj/Documents/files/dataset/sydney-urban-objects-dataset/objects/"
 data_dir = "./xyz/"
@@ -105,19 +106,54 @@ def get_features(data_matrix, k_neighbor=3, radius=1):
     return final
 
 
+def change_to_num_ifNan(feature):
+    if math.isnan(feature):
+        feature = np.nan_to_num(feature)
+
+    return feature
+
+
+def normalize_features(features):
+
+    total = 0
+    for feature in features:
+        total = total+feature
+    if total != 0:
+        features = features /total
+    return features
+
+
 # 通过pca获得normal信息
+# TODO pca 产生值为0的法向量
 def get_normal_features(points):
     pca = PCA()
     pca.fit(points)
+    signs = pca.singular_values_
+    min_arr = np.argwhere(signs == min(signs))
+    min_index = int(min_arr[0])
+    normal = pca.components_[min_index]
+    # 法向量取向上的方向 TODO 更精确
+    if normal[2] < 0:
+        normal = -normal
+
+    #print 'normal:',normal
+    '''
     if pca.components_[2][0] > 0:
         normal = pca.components_[2]
     else:
         normal = -pca.components_[2]
+    '''
     # TODO 这些特征值相互比较的作用
     surfaceness = pca.explained_variance_ratio_[1] - pca.explained_variance_ratio_[2]
     linearness = pca.explained_variance_ratio_[0] - pca.explained_variance_ratio_[1]
     scatterness = pca.explained_variance_ratio_[2]
+    surfaceness = change_to_num_ifNan(surfaceness)
+    linearness = change_to_num_ifNan(linearness)
+    scatterness = change_to_num_ifNan(scatterness)
     features = np.array([surfaceness, linearness, scatterness])
+    features = normalize_features(features)
+
+    #print 'feature:', features
     normal = np.concatenate([normal, features])
     return normal
 
@@ -130,7 +166,7 @@ def scale_points(points, scale_list):
 
 #TODO 以中间点为中心向各个方向进行延伸
 # 创建包含normal信息的cube体元素 grid_size 应该根据不同的三维图形的大小来变化
-def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, feature_dim=3, rotate_angle=0):
+def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, feature_dim=6, rotate_angle=0):
 
     '''
     max_points = get_max_point(points[:, 0:3])
@@ -143,9 +179,13 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
     points[:, 0:3] = points[:, 0:3] - min_points
     max_points = get_max_point(points[:, 0:3])
     scatter_list = np.array([1, 1, 1])
+    xyz_normals = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
     for i in range(3):
         if max_points[i] > x_size:
             scatter_list[i] = max_points[i] / x_size
+        # 若point太小 需要增大
+        #else:
+
 
     corrd_to_cube = scale_points(points, scatter_list)
 
@@ -168,11 +208,23 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
         condit3 = element[2] >= 0 and element[2] < 32
 
         if (condit1 and condit2 and condit3):
-            cube[int(element[0]), int(element[1]), int(element[2])] = element[3:3 + feature_dim]
+            normal = element[3:6]
+            temp = cube[int(element[0]), int(element[1]), int(element[2])][3:6]
+            if (temp == np.array([0, 0, 0])).all():
+                cube[int(element[0]), int(element[1]), int(element[2])] = element[3:3 + feature_dim]
+            else:
+                flag = True
+                for index_normal in xyz_normals:
+                    if (normal == index_normal).all():
+                        flag = False
+                if flag:
+                    cube[int(element[0]), int(element[1]), int(element[2])] = element[3:3 + feature_dim]
+
             # 不放置法向量 放置 0 或 1
             # cube[int(element[0]), int(element[1]), int(element[2])] = 1
             # print "cube element"
             # print cube[corrd_to_cube[0], corrd_to_cube[1], corrd_to_cube[2]]
+            #print 'normal:', element[3:3 + feature_dim]
         else:
             j = j + 1
             #print "the %dth point do not exist in the cube:" % j
@@ -185,7 +237,7 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
                 if cube[x][y][z][0] != 0.:
                     i = i+1
 
-    #print 'the sum of numbers which is not zero: %d' % i
+    print 'the sum of numbers which is not zero: %d' % i
     #print 'final cube shape:', cube.shape
     return cube
 
@@ -228,7 +280,7 @@ def parse_data_to_cube():
             xyz_file = line.replace('\n', '')
             #print 'the result of ', xyz_file
             points = parse_file(os.path.join(data_dir, xyz_file))
-            #print "size: ", len(points)
+            print "%s size: %d " % (xyz_file, len(points))
             features = get_features(points)
             cube = creat_cube_of_object(features)
             key = xyz_file.split('.')[0]
@@ -268,11 +320,9 @@ def convert_to_records(data, labels, idx):
     writer.close()
     return
 
-def input_data():
+def input_data_from_sydney():
 
-    #tf_file = './tfrecord/temp.tfrecords'
-    kinds = modelNet_label_dictionary.keys()
-    file_list = ['./tfrecord/train/%s_batch.tfrecords' % kind for kind in kinds]
+    file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(0, 4)]
 
     filename_queue = tf.train.string_input_producer(file_list, 2)
 
@@ -316,7 +366,8 @@ def convert_modelNet_to_records(data, labels, file):
     return
 
 
-#TODO 有NAN异常 待解决
+
+#TODO 有NAN异常 待解决 数据预处理出错
 # create tf data used for tensorflow from modelNet
 def parse_model_net_to_record():
 
@@ -357,7 +408,7 @@ def parse_model_net_to_record():
                 points = np.array(element_list)
                 features = get_features(points)
                 cube = creat_cube_of_object(features)
-                cube = np.reshape(cube, [98304])
+                cube = np.reshape(cube, [196608])
 
                 list_cube.append(cube)
                 labels.append(modelNet_label_dictionary[file])
@@ -389,7 +440,7 @@ def input_data_from_modelNet():
     print serialized_example
 
     features = tf.parse_single_example(serialized_example, features={
-        "data": tf.FixedLenFeature([98304], tf.float32),
+        "data": tf.FixedLenFeature([196608], tf.float32),
         "label": tf.FixedLenFeature([], tf.int64)
     })
     data = features["data"]
@@ -414,7 +465,7 @@ def test():
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
     i = 0
-    for i in range(290):
+    for i in range(20):
         i = i+1
         print 'step %d' % i
         x_data, y_label = sess.run([data, label])
@@ -433,77 +484,11 @@ def test():
 
 
 if __name__ == "__main__":
+    parse_model_net_to_record()
     #parse_model_net_to_record()
-    test()
     #test()
     #data, labels = parse_data_to_cube()
     #convert_to_records(data, labels)
     #convert_to_records(1,2,3)
     #tf.app.run(main=test, argv=[])
-    '''
-    data, label = read_from_tfile()
-    sess = tf.Session()
-    init = tf.global_variables_initializer()
-    sess.run(init)
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
-
-    while not coord.should_stop():
-
-        print sess.run([data, label])
-    '''
-
-
-
-    '''
-    #change_to_xyz_files()
-
-    data_file = "4wd.0.2299.xyz"
-    #points = load_binary_file(filename)
-    #print points
-    #print len(points)
-    #np.savetxt(os.path.join(save_dir, save_file), points, fmt='%3.10f')
-
-    points = np.loadtxt(os.path.join(data_dir, data_file))
-
-    features = get_features(points)
-    print features
-    cube = creat_cube_of_object(features)
-    cube = cube.astype(np.float32)
-    print type(cube[0][0][0][0])
-
-    np.savetxt("init.xyz", cube, fmt='%s')
-
-    #get_features(points, k_neighbor=3, radius=1.8)
-    #data_augmentation(points,30)
-    #print get_min_point(test, 3)
-    '''
-
-    '''
-    dir_of_dirs = ''
-    dirs = os.listdir(dir_of_dirs)
-    for dir in dirs:
-        files = os.listdir(os.path.join(dir_of_dirs, dir))
-        os.chdir(os.path.join(dir_of_dirs, dir))
-        os.makedirs('xyz')
-        os.makedirs('npy')
-        print "处理文件夹%s" % dir
-        for file in files:
-            print "处理文件%s" % file
-            filepath = os.path.join(dir_of_dirs, dir, file)
-            points = load_binary_file(filepath)
-            np.savetxt(os.path.join(dir_of_dirs, dir, 'xyz', file + '.xyz'), points, fmt='%10.5f')
-            np.save(os.path.join(dir_of_dirs, dir, 'npy', file), points)
-
-
-    dirofDir = 'E:/forest_data/sysdeny'
-    dirs = os.listdir(dirofDir)
-    list_rate_toSave = []
-    for dir in dirs:
-        filedir = os.path.join(dirofDir, dir, 'xyz')
-        list_of_cube, list_of_occupy_rates = aug_and_normal(filedir, 6)
-        np.save(dir, np.array(list_of_cube))
-        list_rate_toSave.extend(list_of_occupy_rates)
-    np.savetxt('occupy_rate.txt', np.array(list_rate_toSave), fmt='%0.5f')
-    '''
 
