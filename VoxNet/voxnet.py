@@ -8,6 +8,35 @@ import time
 model_path = "./checkpoints/"
 modelNet_label_dictionary = {'bed': 0, 'monitor': 1, 'dresser': 2, 'sofa': 3,
                                  'toilet': 4, 'bathtub': 5, 'chair': 6, 'night_stand': 7, 'desk': 8, 'table': 9}
+
+modelNet40_label_dictionary = {'sink': 0, 'airplane': 1, 'bed': 2, 'flower_pot': 3, 'monitor': 4,
+                               'dresser': 5, 'sofa': 6, 'radio': 7, 'cup': 8, 'stairs': 9, 'toilet': 10,
+                               'bowl': 11, 'wardrobe': 12, 'vase': 13, 'curtain': 14, 'laptop': 15, 'plant': 16,
+                               'bench': 17, 'tent': 18, 'bathtub': 19, 'chair': 20, 'lamp': 21, 'keyboard': 22,
+                               'piano': 23, 'car': 24, 'night_stand': 25, 'bottle': 26, 'xbox': 27, 'bookshelf': 28,
+                               'stool': 29, 'guitar': 30, 'door': 31, 'range_hood': 32, 'glass_box': 33, 'tv_stand': 34,
+                               'mantel': 35, 'desk': 36, 'person': 37, 'table': 38, 'cone': 39}
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--batch_size", type=int, default=4, help="the number of examples each batch to train")
+parser.add_argument("--epoch", type=int, default=20, help="the max number of examples need to train")
+parser.add_argument("--num_classes", type=int, default=10, help="the  classes of the examples ")
+parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
+parser.add_argument("--test_total", type=str, default=908, help="the total count of test examples ")
+parser.add_argument("--learning_rate", type=float, default=0.01, help="the learning rate ")
+parser.add_argument("--decay_rate", type=float, default=0.5, help="the decay ")
+parser.add_argument("--decay_step", type=int, default=200000, help="the step of decay ")
+parser.add_argument("--example_total", type=int, default=3991, help="the total count of  examples ")
+
+FLAGS = parser.parse_args()
+
+BATCH_SIZE = FLAGS.batch_size
+GLOBAL_STEP = (FLAGS.epoch * FLAGS.example_total / BATCH_SIZE)
+BASE_LEARNING_RATE = FLAGS.learning_rate
+DECAY_STEP = FLAGS.decay_step
+DECAY_RATE = FLAGS.decay_rate
+
+
 def _activation_summary(x):
     """Helper to create summaries for activations."""
     tensor_name = x.op.name
@@ -36,10 +65,10 @@ def conv_2d(x, W, stride, padding="SAME"):
     return tf.nn.conv2d(x, W, strides=[1, stride, stride, 1], padding=padding)
 
 
-def inference(boxes):
+def inference(boxes, keep_prob):
 
     with tf.name_scope("conv1") as scope:
-        kernel = variable_with_weight_loss([5, 5, 5, 6, 64], stddev=0.1, wl=0.0)
+        kernel = variable_with_weight_loss([5, 5, 5, 3, 64], stddev=0.1, wl=0.0)
         bias = bias_variable([64], 0.0)
         conv1 = tf.nn.conv3d(boxes, kernel, strides=[1, 1, 1, 1, 1], padding="SAME")
         conv1 = tf.nn.relu(tf.nn.bias_add(conv1, bias), name=scope)
@@ -73,23 +102,25 @@ def inference(boxes):
         reshape = tf.reshape(pool3, [FLAGS.batch_size, -1])
         dim = reshape.get_shape()[1].value
         print ("dim: ", dim)
-        kernel = variable_with_weight_loss([dim, 1024], stddev=0.04, wl=0.004)
-        bias = bias_variable([1024], 0.1)
+        kernel = variable_with_weight_loss([dim, 4096], stddev=0.04, wl=0.004)
+        bias = bias_variable([4096], 0.1)
         fcn1 = tf.nn.relu(tf.matmul(reshape, kernel) + bias, name=scope)
+        fcn1_drop = tf.nn.dropout(fcn1, keep_prob, name='fcn1_drop')
         _activation_summary(fcn1)
         print_activation(fcn1)
 
     with tf.name_scope("fcn2") as scope:
-        kernel = variable_with_weight_loss([1024, 512], stddev=0.04, wl=0.004)
-        bias = bias_variable([512], 0.1)
-        fcn2 = tf.nn.relu(tf.matmul(fcn1, kernel) + bias, name=scope)
+        kernel = variable_with_weight_loss([4096, 1024], stddev=0.04, wl=0.004)
+        bias = bias_variable([1024], 0.1)
+        fcn2 = tf.nn.relu(tf.matmul(fcn1_drop, kernel) + bias, name=scope)
+        fcn2_drop = tf.nn.dropout(fcn2, keep_prob, name='fcn2_drop')
         _activation_summary(fcn2)
         print_activation(fcn2)
 
     with tf.name_scope("softmax_linear") as scope:
-        kernel = variable_with_weight_loss([512, FLAGS.num_classes], stddev=0.0001, wl=0.0)
+        kernel = variable_with_weight_loss([1024, FLAGS.num_classes], stddev=0.0001, wl=0.0)
         bias = bias_variable([FLAGS.num_classes], 0.0)
-        softmax_linear = tf.nn.relu(tf.matmul(fcn2, kernel) + bias, name=scope)
+        softmax_linear = tf.nn.relu(tf.matmul(fcn2_drop, kernel) + bias, name=scope)
         _activation_summary(softmax_linear)
         print_activation(softmax_linear)
 
@@ -145,7 +176,7 @@ def input_data_from_modelNet(eval_true=False):
     print serialized_example
 
     features = tf.parse_single_example(serialized_example, features={
-        "data": tf.FixedLenFeature([196608], tf.float32),
+        "data": tf.FixedLenFeature([98304], tf.float32),
         "label": tf.FixedLenFeature([], tf.int64)
     })
     data = features["data"]
@@ -157,21 +188,39 @@ def input_data_from_modelNet(eval_true=False):
     return image_batch, label_batch
 
 
+def get_learning_rate():
+    learning_rate = tf.train.exponential_decay(
+                        BASE_LEARNING_RATE,  # Base learning rate.
+                        GLOBAL_STEP,  # Current index into the dataset.
+                        DECAY_STEP,          # Decay step.
+                        DECAY_RATE,          # Decay rate.
+                        staircase=True)
+    learning_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!
+    return learning_rate
+
+
 def train(_):
     cube_batch, label_batch = input_data_from_modelNet()
+    keep_prob = 0.5
+    learning_rate = get_learning_rate()
 
     with tf.name_scope("reshape") as scope:
         cube_batch = tf.cast(cube_batch, tf.float32)
         label_batch = tf.cast(label_batch, tf.int32)
-        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 6])
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
         label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
         print 'cube', cube_batch
         print 'label', label_batch
 
+    test_data = cube_batch
+    test_label = label_batch
+    test_logits = inference(test_data, keep_prob)
+    test_top_k_op = tf.nn.in_top_k(predictions=test_logits, targets=test_label, k=1)
 
-    logits = inference(cube_batch)
+    logits = inference(cube_batch, keep_prob)
     loss = get_loss(logits, label_batch)
-    train_step = tf.train.AdamOptimizer(1e-3).minimize(loss)
+
+    train_step = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
     config = tf.ConfigProto()
     # allocate only as much GPU memory based on runtime allocations
@@ -198,6 +247,9 @@ def train(_):
                 sec_per_batch = float(duration)
                 format_str = ("step %d loss=%.2f (%.1f examples/sec; %.3f sec/batch)")
                 print(format_str % (step, loss_value, example_per_sec, sec_per_batch))
+                predition = sess.run([test_top_k_op])
+                accuary = float(np.sum(predition)) / len(predition[0])
+                print 'accuracy:', accuary
             step = step + 1
     except tf.errors.OutOfRangeError:
         print "Done train -- epoch limit reached"
@@ -215,16 +267,19 @@ def train(_):
 def test(_):
 
     cube_batch, label_batch = input_data_from_modelNet(eval_true=True)
+    keep_prob = 1.0
 
     with tf.name_scope("reshape") as scope:
         cube_batch = tf.cast(cube_batch, tf.float32)
         label_batch = tf.cast(label_batch, tf.int32)
-        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 6])
+        cube_batch = tf.reshape(cube_batch, [FLAGS.batch_size, 32, 32, 32, 3])
         label_batch = tf.reshape(label_batch, [FLAGS.batch_size])
         print 'cube', cube_batch
         print 'label', label_batch
 
-    logits = inference(cube_batch)
+    logits = inference(cube_batch, keep_prob)
+    # in_top_k : 返回输出结果中top k的准确率  top 1 即是得分最高的准确率
+    test_top_k_op = tf.nn.in_top_k(predictions=logits, targets=label_batch, k=1)
 
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
     config = tf.ConfigProto()
@@ -242,8 +297,7 @@ def test(_):
     total_count = int(FLAGS.test_total)
     true_count = 0
     test_loss = get_loss(logits, label_batch)
-    # in_top_k : 返回输出结果中top k的准确率  top 1 即是得分最高的准确率
-    test_top_k_op = tf.nn.in_top_k(predictions=logits, targets=label_batch, k=1)
+
     step = 1
     try:
 
@@ -256,6 +310,7 @@ def test(_):
 
             prediction, loss_value = sess.run([test_top_k_op, test_loss])
             true_count += np.sum(prediction)
+            print 'prediction: ', prediction
 
             duration = time.time() - start_time
             if step % 10 == 0:
@@ -292,13 +347,6 @@ def get_loss(logits, labels):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=8, help="the number of examples each batch to train")
-    parser.add_argument("--epoch", type=int, default=20, help="the max number of examples need to train")
-    parser.add_argument("--num_classes", type=int, default=10, help="the  classes of the examples ")
-    parser.add_argument("--action", type=str, default="train", help="the action you want to do ")
-    parser.add_argument("--test_total", type=str, default=908, help="the total count of test examples ")
-    FLAGS = parser.parse_args()
     print FLAGS
     if FLAGS.action == "train":
         func = train

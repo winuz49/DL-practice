@@ -26,6 +26,15 @@ label_dictionary = {'4wd': 0, 'building': 1, 'bus': 2, 'car': 3, 'pedestrian': 4
                     'van': 13}
 modelNet_label_dictionary = {'bed': 0, 'monitor': 1, 'dresser': 2, 'sofa': 3,
                                  'toilet': 4, 'bathtub': 5, 'chair': 6, 'night_stand': 7, 'desk': 8, 'table': 9}
+
+modelNet40_label_dictionary = {'sink': 0, 'airplane': 1, 'bed': 2, 'flower_pot': 3, 'monitor': 4,
+                               'dresser': 5, 'sofa': 6, 'radio': 7, 'cup': 8, 'stairs': 9, 'toilet': 10,
+                               'bowl': 11, 'wardrobe': 12, 'vase': 13, 'curtain': 14, 'laptop': 15, 'plant': 16,
+                               'bench': 17, 'tent': 18, 'bathtub': 19, 'chair': 20, 'lamp': 21, 'keyboard': 22,
+                               'piano': 23, 'car': 24, 'night_stand': 25, 'bottle': 26, 'xbox': 27, 'bookshelf': 28,
+                               'stool': 29, 'guitar': 30, 'door': 31, 'range_hood': 32, 'glass_box': 33, 'tv_stand': 34,
+                               'mantel': 35, 'desk': 36, 'person': 37, 'table': 38, 'cone': 39}
+
 binType = np.dtype(dict(names=names, formats=formats))
 #TODO 增加数据
 
@@ -63,13 +72,15 @@ def change_to_xyz_files():
     return
 
 
-# 增加数据
-def data_augmentation(points, rotate_angle):
+# 增加数据 xy旋转 z轴不变
+# x' = xcos(a) - y sin(a)
+# y' = xsin(a) + y cos(a)
+def data_augmentation(points, rotate_angle=30):
+    print 'data augmentataion'
     max_points = get_max_point(points, 3)
     min_points = get_min_point(points, 3)
     center_of_boundingbox = (max_points - min_points) / 2 + min_points
     points[:, 0:3] = points[:, 0:3] - center_of_boundingbox
-    np.savetxt("init.xyz", points, fmt="%3.10f")
     xy = points[:, 0:2]
     z = points[:, 2:]
     list_of_rotated_points = []
@@ -77,19 +88,11 @@ def data_augmentation(points, rotate_angle):
 
     for i in range(num_of_rotated):
         angle = (i * rotate_angle / 180.) * np.pi
-        print 'angle:'
-        print angle
-        rotate_matrix = np.array([[np.cos(angle), np.sin(angle)], [np.sin(angle), np.cos(angle)]])
-        print 'rotated_angles:'
-        print rotate_matrix
+        rotate_matrix = np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
         temp = np.column_stack((xy.dot(rotate_matrix), z))
-        print "rotated points"
-        print temp
         list_of_rotated_points.append(temp)
 
-    print list_of_rotated_points
-
-    return data_augmentation
+    return list_of_rotated_points
 
 
 # 使用k邻近算法和pca算法 获得normal信息
@@ -164,9 +167,9 @@ def scale_points(points, scale_list):
     points = np.concatenate((cube_points, points[:, 3:]), axis=1)
     return points
 
+
 #TODO 以中间点为中心向各个方向进行延伸
-# 创建包含normal信息的cube体元素 grid_size 应该根据不同的三维图形的大小来变化
-def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, feature_dim=6, rotate_angle=0):
+def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, feature_dim=3, rotate_angle=0):
 
     '''
     max_points = get_max_point(points[:, 0:3])
@@ -183,7 +186,7 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
     for i in range(3):
         if max_points[i] > x_size:
             scatter_list[i] = max_points[i] / x_size
-        # 若point太小 需要增大
+        #TODO 若point太小 需要增大
         #else:
 
 
@@ -209,7 +212,7 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
 
         if (condit1 and condit2 and condit3):
             normal = element[3:6]
-            temp = cube[int(element[0]), int(element[1]), int(element[2])][3:6]
+            temp = cube[int(element[0]), int(element[1]), int(element[2])][0:3]
             if (temp == np.array([0, 0, 0])).all():
                 cube[int(element[0]), int(element[1]), int(element[2])] = element[3:3 + feature_dim]
             else:
@@ -242,10 +245,9 @@ def creat_cube_of_object(points, grid_size= 1, x_size=32, y_size=32, z_size=32, 
     return cube
 
 
+
 def parse_file(filename):
     points = np.loadtxt(filename)
-    #print 'parse_file: ', points.shape
-
     return points
 
 
@@ -320,6 +322,7 @@ def convert_to_records(data, labels, idx):
     writer.close()
     return
 
+
 def input_data_from_sydney():
 
     file_list = ['./tfrecord/data_batch_%d.tfrecords' % i for i in range(0, 4)]
@@ -346,12 +349,15 @@ def input_data_from_sydney():
     return image_batch, label_batch
 
 
-def convert_modelNet_to_records(data, labels, file):
+def convert_modelNet_to_records(data, labels, action_type, file):
 
-    tf_dir = './tfrecord/'
+    print 'action type: ', action_type
+    print 'filename: ', file
+
+    tf_dir = './tfrecord/modelNet'
     # 创建test数据集合
-    #tf_file = os.path.join(tf_dir, ('test_%s_batch.tfrecords' % file))
-    tf_file = os.path.join(tf_dir, ('%s_batch.tfrecords' % file))
+    tf_file = os.path.join(tf_dir+action_type, '%s_batch.tfrecords' % file)
+
 
     size = data.shape[0]
 
@@ -366,21 +372,18 @@ def convert_modelNet_to_records(data, labels, file):
     return
 
 
-
-#TODO 有NAN异常 待解决 数据预处理出错
 # create tf data used for tensorflow from modelNet
 def parse_model_net_to_record():
 
-    modelNet_dataset_dir = '/home/wzj/Documents/files/dataset/ModelNet10/'
+    modelNet_dataset_dir = './ModelNet10/'
     action_type = '/test/'
-    tf_records_dir = './tfrecord/'
     files_list = os.listdir(modelNet_dataset_dir)
     print files_list
     for file in files_list:
         is_dir = os.path.isdir(os.path.join(modelNet_dataset_dir, file))
         if is_dir:
             print file
-            print modelNet_label_dictionary[file]
+            print modelNet40_label_dictionary[file]
             data_files = os.listdir(os.path.join(modelNet_dataset_dir, file+action_type))
             list_cube = []
             labels = []
@@ -406,19 +409,34 @@ def parse_model_net_to_record():
                     element_list.append(temp_list)
 
                 points = np.array(element_list)
+                if len(points) < 3:
+                    print 'abandom'
+                    reader.close()
+                    continue
                 features = get_features(points)
                 cube = creat_cube_of_object(features)
-                cube = np.reshape(cube, [196608])
+                cube = np.reshape(cube, [98304])
 
                 list_cube.append(cube)
-                labels.append(modelNet_label_dictionary[file])
+                labels.append(modelNet40_label_dictionary[file])
+                '''
+                #TODO 增加数据 待测试
+                list_points = data_augmentation(points, rotate_angle=30)
+                for points in list_points:
+                    #print points
+                    features = get_features(points)
+                    cube = creat_cube_of_object(features)
+                    cube = np.reshape(cube, [98304])
+                    list_cube.append(cube)
+                    labels.append(modelNet_label_dictionary[file])
+                '''
                 reader.close()
 
             array_cube = np.array(list_cube)
             array_label = np.array(labels)
             print array_cube.shape
             print array_label.shape
-            convert_modelNet_to_records(array_cube, array_label, file)
+            convert_modelNet_to_records(array_cube, array_label, action_type, file)
 
     return
 
@@ -426,11 +444,12 @@ def parse_model_net_to_record():
 def input_data_from_modelNet():
 
     kinds = modelNet_label_dictionary.keys()
-    file_list = ['./tfrecord/modelNet/train/%s_batch.tfrecords' % kind for kind in kinds]
+    #file_list = ['./tfrecord/modelNet/train/%s_batch.tfrecords' % kind for kind in kinds]
+    file_list = ['./tfrecord/bed_batch.tfrecords', './tfrecord/monitor_batch.tfrecords']
     #file_list = ['./tf']
     print file_list
 
-    filename_queue = tf.train.string_input_producer(file_list, 2)
+    filename_queue = tf.train.string_input_producer(file_list, 4)
 
     print filename_queue
 
@@ -440,7 +459,7 @@ def input_data_from_modelNet():
     print serialized_example
 
     features = tf.parse_single_example(serialized_example, features={
-        "data": tf.FixedLenFeature([196608], tf.float32),
+        "data": tf.FixedLenFeature([98304], tf.float32),
         "label": tf.FixedLenFeature([], tf.int64)
     })
     data = features["data"]
@@ -482,13 +501,8 @@ def test():
     return
 
 
-
 if __name__ == "__main__":
     parse_model_net_to_record()
-    #parse_model_net_to_record()
     #test()
-    #data, labels = parse_data_to_cube()
-    #convert_to_records(data, labels)
-    #convert_to_records(1,2,3)
-    #tf.app.run(main=test, argv=[])
+
 

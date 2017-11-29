@@ -34,4 +34,6 @@ __init__.py
 model.*
 checkpoint
 VoxNet-for-01-padding/*
+VoxNet-features/*
 *.tfrecords
+*.csv
