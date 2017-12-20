@@ -37,3 +37,7 @@ VoxNet-for-01-padding/*
 VoxNet-features/*
 *.tfrecords
 *.csv
+*.7z
+*.wav
+LICENSE
+speech_re.md
